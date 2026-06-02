@@ -8,10 +8,11 @@ loom, model-gateway, granite, drive, pigeon, and bowerbird.
 
 ### `rust-lambda-service`
 
-The Lambda + IAM execution role + log group + public Function URL stack. Public
-invocation is granted by a single native `aws_lambda_permission` with
-`function_url_auth_type = "NONE"` (supported since AWS provider 4.x), so no
-CloudFormation workaround is required.
+The Lambda + IAM execution role + log group + public Function URL stack, plus
+the AccessDeniedException CloudFormation workaround (a public Function URL
+needs the `InvokedViaFunctionUrl` permission condition, which
+`aws_lambda_permission` cannot express, so a tiny CloudFormation stack manages
+it).
 
 Service-specific resources (DynamoDB tables, S3 buckets, KMS keys, SNS topics,
 API Gateway, CloudFront) stay in each service's own config and are wired into

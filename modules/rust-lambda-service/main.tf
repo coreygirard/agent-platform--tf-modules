@@ -2,9 +2,9 @@
 #
 # The Lambda + IAM execution role + log group + public Function URL stack that
 # loom, model-gateway, granite, drive, pigeon, and bowerbird all copy-pasted.
-# Public invocation is granted by a single native aws_lambda_permission with
-# function_url_auth_type = "NONE" (supported since AWS provider 4.x); the old
-# AccessDeniedException CloudFormation workaround is no longer needed.
+# Includes the AccessDeniedException CloudFormation workaround: the
+# aws_lambda_permission resource cannot grant the InvokedViaFunctionUrl
+# condition, so a tiny CloudFormation stack manages that permission instead.
 #
 # Service-specific resources (DynamoDB tables, S3 buckets, KMS keys, SNS
 # topics, API Gateway, CloudFront) stay in each service's own config and are
@@ -121,4 +121,30 @@ resource "aws_lambda_permission" "function_url_public" {
   function_name          = aws_lambda_function.this.function_name
   principal              = "*"
   function_url_auth_type = "NONE"
+}
+
+# AccessDeniedException workaround: aws_lambda_permission cannot express the
+# InvokedViaFunctionUrl condition that AWS requires for public Function URL
+# invocation, so a CloudFormation stack manages that one permission.
+resource "aws_cloudformation_stack" "function_url_invoke_public" {
+  name = "${var.app_name}-function-url-invoke-public"
+
+  template_body = jsonencode({
+    AWSTemplateFormatVersion = "2010-09-09"
+    Resources = {
+      FunctionUrlInvokePublic = {
+        Type = "AWS::Lambda::Permission"
+        Properties = {
+          Action                = "lambda:InvokeFunction"
+          FunctionName          = aws_lambda_function.this.function_name
+          Principal             = "*"
+          InvokedViaFunctionUrl = true
+        }
+      }
+    }
+  })
+
+  depends_on = [aws_lambda_function_url.this]
+
+  tags = local.common_tags
 }
