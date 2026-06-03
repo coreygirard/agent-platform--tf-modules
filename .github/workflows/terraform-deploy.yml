@@ -1,0 +1,147 @@
+name: terraform-deploy (reusable)
+
+# Reusable deploy pipeline for the agent-platform Rust-Lambda services:
+# build the Lambda zip -> assume the per-service deploy role via OIDC ->
+# terraform init (S3 backend) -> apply -> optional smoke check.
+#
+# One definition for every service; callers pass only what differs (account
+# role, artifact path, any service-specific TF_VARs, smoke URLs). Replaces the
+# per-repo copy-pasted deploy jobs.
+#
+# Caller example (service repo .github/workflows/deploy.yml):
+#   jobs:
+#     test:
+#       uses: ./.github/workflows/test.yml
+#     deploy:
+#       needs: test
+#       permissions: { id-token: write, contents: read }
+#       uses: coreygirard/agent-platform--tf-modules/.github/workflows/terraform-deploy.yml@main
+#       with:
+#         aws_role_arn: arn:aws:iam::<acct>:role/github-actions-deploy
+#         lambda_zip_path: backend/build/lambda/<svc>/bootstrap.zip
+#         tf_vars: |
+#           TF_VAR_some_flag=on
+#         smoke_health_url: https://<svc-domain>/health
+
+on:
+  workflow_call:
+    inputs:
+      aws_role_arn:
+        description: ARN of the per-service github-actions-deploy role to assume via OIDC.
+        required: true
+        type: string
+      aws_region:
+        required: false
+        type: string
+        default: us-east-1
+      terraform_version:
+        required: false
+        type: string
+        default: "1.6.6"
+      cargo_workspace:
+        description: Path passed to rust-cache (the Cargo workspace dir).
+        required: false
+        type: string
+        default: backend
+      build_script:
+        description: Script that builds the Lambda bootstrap.zip.
+        required: false
+        type: string
+        default: backend/scripts/build-lambda.sh
+      working_directory:
+        description: Directory containing the service's terraform.
+        required: false
+        type: string
+        default: backend/infra/aws
+      backend_config_file:
+        required: false
+        type: string
+        default: backend.hcl
+      lambda_zip_path:
+        description: Built zip path relative to the workspace; exported as TF_VAR_lambda_zip_path.
+        required: true
+        type: string
+      tf_vars:
+        description: Newline-separated extra TF_VAR_x=value pairs for the apply.
+        required: false
+        type: string
+        default: ""
+      smoke_health_url:
+        description: If set, GET it after apply and fail on non-2xx.
+        required: false
+        type: string
+        default: ""
+      smoke_authed_url:
+        description: If set, GET it unauthenticated after apply and require HTTP 401.
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: install rust + musl target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: install musl-tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ inputs.cargo_workspace }}
+
+      - name: build lambda zip
+        run: bash ${{ inputs.build_script }}
+
+      - name: configure aws via oidc
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.aws_role_arn }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: terraform setup
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
+
+      - name: terraform init
+        working-directory: ${{ inputs.working_directory }}
+        run: terraform init -input=false -backend-config=${{ inputs.backend_config_file }}
+
+      # Secrets come from AWS Secrets Manager via the terraform itself (none in
+      # GitHub). Only the built artifact path plus any caller-supplied TF_VARs.
+      - name: terraform apply
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          TF_VAR_lambda_zip_path: ${{ github.workspace }}/${{ inputs.lambda_zip_path }}
+          EXTRA_TF_VARS: ${{ inputs.tf_vars }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            export "$line"
+          done <<< "$EXTRA_TF_VARS"
+          terraform apply -auto-approve -input=false
+
+      - name: smoke check
+        if: ${{ inputs.smoke_health_url != '' }}
+        env:
+          HEALTH_URL: ${{ inputs.smoke_health_url }}
+          AUTHED_URL: ${{ inputs.smoke_authed_url }}
+        run: |
+          set -euo pipefail
+          curl -fsS -o /dev/null -w "health HTTP %{http_code}\n" "$HEALTH_URL"
+          if [ -n "$AUTHED_URL" ]; then
+            code=$(curl -sS -o /dev/null -w "%{http_code}" "$AUTHED_URL")
+            if [ "$code" != "401" ]; then
+              echo "FAIL: expected 401 from $AUTHED_URL, got $code"; exit 1
+            fi
+          fi
+          echo "smoke checks passed"
