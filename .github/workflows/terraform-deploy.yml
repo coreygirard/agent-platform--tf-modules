@@ -58,9 +58,10 @@ on:
         type: string
         default: backend.hcl
       lambda_zip_path:
-        description: Built zip path relative to the workspace; exported as TF_VAR_lambda_zip_path.
-        required: true
+        description: Built zip path relative to the workspace; exported as TF_VAR_lambda_zip_path when set. Leave empty if the service's terraform reads the artifact from its own var default.
+        required: false
         type: string
+        default: ""
       tf_vars:
         description: Newline-separated extra TF_VAR_x=value pairs for the apply.
         required: false
@@ -76,6 +77,13 @@ on:
         required: false
         type: string
         default: ""
+    secrets:
+      tf_var_secrets:
+        description: >-
+          Newline-separated TF_VAR_x=value pairs sourced from GitHub secrets
+          (masked in logs). The caller maps its own secret names, e.g.
+          TF_VAR_turso_token=${{ secrets.TURSO_TOKEN }}.
+        required: false
 
 jobs:
   deploy:
@@ -113,21 +121,37 @@ jobs:
 
       - name: terraform init
         working-directory: ${{ inputs.working_directory }}
-        run: terraform init -input=false -backend-config=${{ inputs.backend_config_file }}
+        env:
+          BACKEND_CONFIG_FILE: ${{ inputs.backend_config_file }}
+        run: |
+          set -euo pipefail
+          if [ -n "$BACKEND_CONFIG_FILE" ]; then
+            terraform init -input=false -backend-config="$BACKEND_CONFIG_FILE"
+          else
+            terraform init -input=false
+          fi
 
       # Secrets come from AWS Secrets Manager via the terraform itself (none in
       # GitHub). Only the built artifact path plus any caller-supplied TF_VARs.
       - name: terraform apply
         working-directory: ${{ inputs.working_directory }}
         env:
-          TF_VAR_lambda_zip_path: ${{ github.workspace }}/${{ inputs.lambda_zip_path }}
+          LAMBDA_ZIP_PATH: ${{ inputs.lambda_zip_path }}
+          WORKSPACE: ${{ github.workspace }}
           EXTRA_TF_VARS: ${{ inputs.tf_vars }}
+          TF_VAR_SECRETS: ${{ secrets.tf_var_secrets }}
         run: |
           set -euo pipefail
-          while IFS= read -r line; do
-            [ -z "$line" ] && continue
-            export "$line"
-          done <<< "$EXTRA_TF_VARS"
+          if [ -n "$LAMBDA_ZIP_PATH" ]; then
+            export TF_VAR_lambda_zip_path="$WORKSPACE/$LAMBDA_ZIP_PATH"
+          fi
+          # non-secret vars, then masked secret-sourced vars
+          for blob in "$EXTRA_TF_VARS" "$TF_VAR_SECRETS"; do
+            while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              export "$line"
+            done <<< "$blob"
+          done
           terraform apply -auto-approve -input=false
 
       - name: smoke check
