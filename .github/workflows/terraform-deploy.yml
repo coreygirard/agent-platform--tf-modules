@@ -81,8 +81,8 @@ on:
       tf_var_secrets:
         description: >-
           Newline-separated TF_VAR_x=value pairs sourced from GitHub secrets
-          (masked in logs). The caller maps its own secret names, e.g.
-          TF_VAR_turso_token=${{ secrets.TURSO_TOKEN }}.
+          (masked in logs). The caller maps its own secret names into TF_VAR_*
+          lines; see a caller's deploy.yml for the concrete form.
         required: false
 
 jobs:
