@@ -84,6 +84,12 @@ on:
           (masked in logs). The caller maps its own secret names into TF_VAR_*
           lines; see a caller's deploy.yml for the concrete form.
         required: false
+      git_token:
+        description: >-
+          Optional token for cloning PRIVATE git dependencies during the build
+          (e.g. a private Cargo git dep). When set, git is configured to use it
+          for github.com over https. Leave unset for services with no private deps.
+        required: false
 
 jobs:
   deploy:
@@ -104,6 +110,14 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: ${{ inputs.cargo_workspace }}
+
+      - name: configure private git deps
+        env:
+          GIT_TOKEN: ${{ secrets.git_token }}
+        run: |
+          if [ -n "${GIT_TOKEN:-}" ]; then
+            git config --global url."https://x-access-token:${GIT_TOKEN}@github.com/".insteadOf "https://github.com/"
+          fi
 
       - name: build lambda zip
         run: bash ${{ inputs.build_script }}
