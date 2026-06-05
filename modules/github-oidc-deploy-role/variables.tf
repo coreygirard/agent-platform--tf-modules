@@ -1,5 +1,5 @@
 variable "repo" {
-  description = "GitHub repository in owner/name form, e.g. coreygirard/agent-platform--granite. Only this repo's chosen branch can assume the role."
+  description = "GitHub repository in owner/name form, e.g. stackwell-labs/granite. Only this repo's chosen branch can assume the role."
   type        = string
 }
 

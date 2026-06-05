@@ -20,7 +20,7 @@ the Lambda through `env` and `extra_policy_statements`.
 
 ```hcl
 module "service" {
-  source = "git::https://github.com/coreygirard/agent-platform--tf-modules.git//modules/rust-lambda-service?ref=v0.1.0"
+  source = "git::https://github.com/stackwell-labs/shared-terraform.git//modules/rust-lambda-service?ref=v0.1.0"
 
   app_name               = var.app_name
   service                = "loom"
@@ -56,9 +56,9 @@ list. The role's *permissions* are the caller's responsibility (pass
 
 ```hcl
 module "ci_deploy" {
-  source = "git::https://github.com/coreygirard/agent-platform--tf-modules.git//modules/github-oidc-deploy-role?ref=v0.1.0"
+  source = "git::https://github.com/stackwell-labs/shared-terraform.git//modules/github-oidc-deploy-role?ref=v0.1.0"
 
-  repo        = "coreygirard/agent-platform--granite"
+  repo        = "stackwell-labs/granite"
   policy_json = data.aws_iam_policy_document.deploy_scoped.json
 }
 ```

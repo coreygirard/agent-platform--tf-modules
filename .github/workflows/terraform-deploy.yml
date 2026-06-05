@@ -15,7 +15,7 @@ name: terraform-deploy (reusable)
 #     deploy:
 #       needs: test
 #       permissions: { id-token: write, contents: read }
-#       uses: coreygirard/agent-platform--tf-modules/.github/workflows/terraform-deploy.yml@main
+#       uses: stackwell-labs/shared-terraform/.github/workflows/terraform-deploy.yml@main
 #       with:
 #         aws_role_arn: arn:aws:iam::<acct>:role/github-actions-deploy
 #         lambda_zip_path: backend/build/lambda/<svc>/bootstrap.zip
