@@ -77,6 +77,16 @@ on:
         required: false
         type: string
         default: ""
+      git_app_id:
+        description: >-
+          If set, mint a short-lived GitHub App installation token to clone
+          PRIVATE git deps (paired with the git_app_private_key secret), instead
+          of git_token. The App must be installed on this repo's org with read
+          access to the dependency repos. Minted in-job (a token can't be passed
+          via cross-job outputs — GitHub blanks masked values there).
+        required: false
+        type: string
+        default: ""
     secrets:
       tf_var_secrets:
         description: >-
@@ -89,6 +99,12 @@ on:
           Optional token for cloning PRIVATE git dependencies during the build
           (e.g. a private Cargo git dep). When set, git is configured to use it
           for github.com over https. Leave unset for services with no private deps.
+        required: false
+      git_app_private_key:
+        description: >-
+          PEM private key for git_app_id. When both are set, an installation
+          token is minted in-job and used for private git deps (preferred over a
+          long-lived git_token PAT).
         required: false
 
 jobs:
@@ -111,9 +127,21 @@ jobs:
         with:
           workspaces: ${{ inputs.cargo_workspace }}
 
+      # Mint an install token in-job when a GitHub App is configured (a token
+      # can't be threaded from a separate job — GitHub blanks masked values in
+      # cross-job outputs). Falls back to the git_token secret otherwise.
+      - name: mint git app token (private deps)
+        id: git_app_token
+        if: ${{ inputs.git_app_id != '' }}
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ inputs.git_app_id }}
+          private-key: ${{ secrets.git_app_private_key }}
+          owner: ${{ github.repository_owner }}
+
       - name: configure private git deps
         env:
-          GIT_TOKEN: ${{ secrets.git_token }}
+          GIT_TOKEN: ${{ steps.git_app_token.outputs.token || secrets.git_token }}
         run: |
           if [ -n "${GIT_TOKEN:-}" ]; then
             git config --global url."https://x-access-token:${GIT_TOKEN}@github.com/".insteadOf "https://github.com/"
