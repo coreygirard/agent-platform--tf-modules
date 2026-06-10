@@ -81,9 +81,19 @@ on:
         description: >-
           If set, mint a short-lived GitHub App installation token to clone
           PRIVATE git deps (paired with the git_app_private_key secret), instead
-          of git_token. The App must be installed on this repo's org with read
-          access to the dependency repos. Minted in-job (a token can't be passed
-          via cross-job outputs — GitHub blanks masked values there).
+          of git_token. The App must be installed on the org named by
+          git_app_owner (default: this repo's org) with read access to the
+          dependency repos. Minted in-job (a token can't be passed via
+          cross-job outputs — GitHub blanks masked values there).
+        required: false
+        type: string
+        default: ""
+      git_app_owner:
+        description: >-
+          Org whose App installation the token is minted against. Defaults to
+          the calling repo's owner; set it when the private deps live in a
+          DIFFERENT org than the caller (e.g. chirpauth/server-dev depending
+          on stackwell-labs/vault).
         required: false
         type: string
         default: ""
@@ -137,7 +147,7 @@ jobs:
         with:
           app-id: ${{ inputs.git_app_id }}
           private-key: ${{ secrets.git_app_private_key }}
-          owner: ${{ github.repository_owner }}
+          owner: ${{ inputs.git_app_owner || github.repository_owner }}
 
       - name: configure private git deps
         env:
